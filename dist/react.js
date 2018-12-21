@@ -2,8 +2,14 @@ import PropTypes from './prop-types.js';
 import proxied from './proxied.js';
 
 function noop(){ }
+// Object.getPrototypeOf(any) === any.__proto__
+function decorate(base, stuff){
+	class Decorated extends base{};
+	Object.defineProperty(Decorated, 'name', {value: Decorated.name + base.name});
+	Object.assign(Decorated.prototype, stuff);
+	return Decorated;
+}
 
-const argsKey = Symbol('argsDecorator');
 /*
 const React = window.React;
 const proxy = proxied(React, 'React');
@@ -41,6 +47,9 @@ forceUpdate()
 
 v15
 
+Proxy wraps class
+when called with new then set props;
+
 */
 const tagName = Symbol('tag-name');
 const tagPrefix = 'an-';
@@ -53,28 +62,32 @@ const isSVG = /^(?:a|altGlyph|altGlyphDef|altGlyphItem|animate|animateColor|anim
 // https://developer.mozilla.org/en-US/docs/Web/MathML/Element
 const isMATHML = /^(?:math|mglyph|mi|mn|mo|ms|mspace|mtext|menclose|merror|mfenced|mfrac|mpadded|mphantom|mroot|mrow|msqrt|mstyle|mmultiscripts|mover|mprescripts|msub|msubsup|msup|munder|munderover|none|maligngroup|malignmark|mlabeledtr|mtable|mtd|mtr|mlongdiv|mscarries|mscarry|msgroup|msline|msrow|mstack|maction|annotation|annotation-xml|semantics)$/i;
 /* math mglyph mi mn mo ms mspace mtext menclose merror mfenced mfrac mpadded mphantom mroot mrow msqrt mstyle mmultiscripts mover mprescripts msub msubsup msup munder munderover none maligngroup malignmark mlabeledtr mtable mtd mtr mlongdiv mscarries mscarry msgroup msline msrow mstack maction annotation annotation-xml semantics */
+const propsKey = Symbol('propsKey');
 class HTMLAnElement extends HTMLElement{
-	constructor(){
-		// props, context, updater
+	constructor(props, context, updater){
 		super();
-		const args = this.constructor.args;
-		this.props = args[0] || {};
-		// TODO Object.freeze(this.props);
+		this.props = props;
 		if(!this.state){
 			this.state = {};
 		};
 
 		this.attachShadow({mode: 'open'}).innerHTML = `<slot></slot>`;
 	}
-	static get args(){
-		return this[ argsKey ] || [];
+	set props(props){
+		Object.assign(this, props);
+		return true;
+	}
+	get props(){
+		return this;
 	}
 	static get isCallable(){
 		return true;
 	}
 	static getDerivedStateFromProps(props, state){ return null; }
 	static getDerivedStateFromError(){}
-	componentDidCatch(error){ }
+	componentDidCatch(error){
+		console.error(error, this);
+	}
 	componentWillMount(){}
 	componentDidMount(){}
 	componentDidUpdate(props, state, snapshot=null){
@@ -121,7 +134,9 @@ class HTMLAnElement extends HTMLElement{
 			}
 			await Promise.resolve();
 			//if(this.isConnected){
-				this.render();
+// TODO figure out more complex logic, replacing children
+let content = this.render();
+this.insertBefore( content, this.firstChild );
 			//};
 			this.componentDidUpdate();
 			cb.call(this, this);
@@ -136,9 +151,7 @@ class HTMLAnElement extends HTMLElement{
 }
 const HTMLAnElementProxy = new Proxy(HTMLAnElement, {
 	construct(base, args, extended){
-		base[ argsKey ] = args;
 		const instance = Reflect.construct(base, args, extended)
-		base[ argsKey ] = [];
 		return instance;
 	}
 });
@@ -146,6 +159,8 @@ const HTMLAnElementProxy = new Proxy(HTMLAnElement, {
 const React = {
 Component: HTMLAnElementProxy
 ,PureComponent: HTMLAnElementProxy
+,version: '16.0.0'
+,info: `compatible with React v15 v16; ... TODO`
 ,memo(){ }
 ,cloneElement(type, props, ...children){
 // clone keep original key and ref; clone Object.get
@@ -186,8 +201,8 @@ Component: HTMLAnElementProxy
 	};
 	// TODO evaluate approaches
 	if(props){
-		$0.props = props;
-		//Object.assign($0, props);
+		//$0.props = props;
+		Object.assign($0, props);
 	};
 
 	children.reduce(this._flatten, []).forEach(this._appendChild, $0);
@@ -263,8 +278,10 @@ React.createRef = function(){
 	// TODO? Proxy? https://reactjs.org/docs/refs-and-the-dom.html
 	return {current: 'this'}
 }
-/* TODO 
+/* TODO above:
+* how does microtimer work?
 * just one render/promise per?
+* resolve promise with correct value
 * fix callbacks from promise on resolving/catch/etc calling appropriate callbacks
 */
 // https://reactjs.org/docs/react-api.html
